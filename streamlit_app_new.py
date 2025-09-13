@@ -24,6 +24,9 @@ import os
 import sys
 import json
 import struct  # For binary data unpacking
+import io
+from io import BytesIO  # For PDF output
+# PDF generation imports will be handled dynamically in the generate_pdf_report function
 
 # Add the current directory to Python path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -415,6 +418,171 @@ def display_next_steps(detailed_report):
         else:
             st.info(f"{i}. {step}")
 
+def generate_pdf_report(detailed_report, assessment):
+    """Generate a PDF report for water quality analysis using ReportLab
+    
+    Args:
+        detailed_report: Detailed water quality report
+        assessment: Overall assessment data
+        
+    Returns:
+        PDF file bytes
+    """
+    # Use ReportLab which handles Unicode better
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    
+    # Create a buffer to receive PDF data
+    buffer = BytesIO()
+    
+    # Create the PDF document
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    elements = []
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    title_style = styles['Title']
+    heading_style = styles['Heading1']
+    subheading_style = styles['Heading2']
+    normal_style = styles['Normal']
+    
+    # Create custom styles
+    red_style = ParagraphStyle(
+        'RedStyle', 
+        parent=normal_style, 
+        textColor=colors.red
+    )
+    
+    green_style = ParagraphStyle(
+        'GreenStyle', 
+        parent=normal_style, 
+        textColor=colors.green
+    )
+    
+    # Add title
+    elements.append(Paragraph('Water Quality Analysis Report', title_style))
+    elements.append(Spacer(1, 0.25*inch))
+    
+    # Add metadata
+    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+    elements.append(Spacer(1, 0.25*inch))
+    
+    # Overall assessment
+    elements.append(Paragraph('Overall Assessment', heading_style))
+    
+    # Safety status with color
+    if assessment['safety_status'] == 'SAFE':
+        status_style = green_style
+    else:
+        status_style = red_style
+    
+    elements.append(Paragraph(f"Status: {assessment['safety_status']}", status_style))
+    elements.append(Paragraph(f"Confidence: {assessment['confidence']:.1%}", normal_style))
+    elements.append(Paragraph(f"Recommendation: {assessment['recommendation']}", normal_style))
+    
+    elements.append(Spacer(1, 0.25*inch))
+    
+    # Parameter analysis
+    elements.append(Paragraph('Parameter Analysis', heading_style))
+    
+    # Create parameter table
+    param_data = [
+        ['Parameter', 'Value', 'Safe Range', 'Status', 'Issue Type']
+    ]
+    
+    # Add parameter data
+    for param, analysis in detailed_report['parameter_analysis'].items():
+        status = "Safe" if analysis['status'] == 'safe' else "Unsafe"
+        issue = analysis['issue_type'].replace('_', ' ').title() if analysis['issue_type'] else 'None'
+        param_data.append([
+            param.replace('_', ' ').title(),
+            f"{analysis['value']:.2f}",
+            analysis['safe_range'],
+            status,
+            issue
+        ])
+    
+    # Create table
+    param_table = Table(param_data, colWidths=[1.5*inch, 0.8*inch, 1.2*inch, 0.8*inch, 1.5*inch])
+    
+    # Add table style
+    param_style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ])
+    
+    # Add color to status cells
+    for i in range(1, len(param_data)):
+        if param_data[i][3] == "Safe":
+            param_style.add('TEXTCOLOR', (3, i), (3, i), colors.green)
+        else:
+            param_style.add('TEXTCOLOR', (3, i), (3, i), colors.red)
+    
+    param_table.setStyle(param_style)
+    elements.append(param_table)
+    elements.append(Spacer(1, 0.25*inch))
+    
+    # Issues summary
+    elements.append(Paragraph('Issues and Recommendations', heading_style))
+    elements.append(Paragraph(f"Total Issues Found: {detailed_report['issue_summary']['total_issues']}", normal_style))
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # Group suggestions by priority
+    high_priority = [s for s in detailed_report['suggestions'] if s['priority'] == 'high']
+    medium_priority = [s for s in detailed_report['suggestions'] if s['priority'] == 'medium']
+    low_priority = [s for s in detailed_report['suggestions'] if s['priority'] == 'low']
+    
+    # Add issues by priority
+    if high_priority:
+        high_style = ParagraphStyle('HighPriority', parent=subheading_style, textColor=colors.red)
+        elements.append(Paragraph("HIGH PRIORITY ISSUES", high_style))
+        
+        for suggestion in high_priority:
+            elements.append(Paragraph(f"{suggestion['parameter']} - {suggestion['severity'].title()} Issue", subheading_style))
+            elements.append(Paragraph(f"<b>Problem:</b> {suggestion['issue']}", normal_style))
+            elements.append(Paragraph(f"<b>Health Impact:</b> {suggestion['health_impact']}", normal_style))
+            
+            elements.append(Paragraph("<b>Recommended Treatments:</b>", normal_style))
+            for i, treatment in enumerate(suggestion['treatments'], 1):
+                elements.append(Paragraph(f"{i}. {treatment}", normal_style))
+            
+            elements.append(Spacer(1, 0.15*inch))
+    
+    # Next steps
+    elements.append(Paragraph('Next Steps', heading_style))
+    
+    for i, step in enumerate(detailed_report['next_steps'], 1):
+        if step.startswith("DO NOT"):
+            elements.append(Paragraph(f"{i}. {step}", red_style))
+        elif step.startswith("Address high-priority"):
+            step_style = ParagraphStyle('OrangeStyle', parent=normal_style, textColor=colors.orangered)
+            elements.append(Paragraph(f"{i}. {step}", step_style))
+        else:
+            elements.append(Paragraph(f"{i}. {step}", normal_style))
+    
+    elements.append(Spacer(1, 0.5*inch))
+    
+    # Disclaimer
+    disclaimer_style = ParagraphStyle('Disclaimer', parent=normal_style, fontSize=8, fontName='Helvetica-Oblique')
+    elements.append(Paragraph("Disclaimer: This report is for informational purposes only. Always consult with water quality professionals for official testing and treatment decisions.", disclaimer_style))
+    
+    # Build the PDF
+    doc.build(elements)
+    
+    # Get PDF value from buffer
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def load_model_performance():
     """Load and display model performance metrics"""
     try:
@@ -602,19 +770,22 @@ def display_history_details(search_id):
         # If we have detailed report, display it
         if 'parameter_analysis' in search_details:
             # Create tabs for different sections
-            tab1, tab2, tab3 = st.tabs([
+            tab1, tab2, tab3, tab4 = st.tabs([
                 "📊 Parameter Analysis", 
                 "💡 Recommendations", 
-                "🎯 Next Steps"
+                "🎯 Next Steps",
+                "📋 Download Report"
             ])
             
+            # Recreate detailed report structure for display functions
+            detailed_report = {
+                'parameter_analysis': search_details['parameter_analysis'],
+                'suggestions': search_details['suggestions'],
+                'next_steps': search_details['next_steps'],
+                'issue_summary': {'total_issues': len(search_details['suggestions'])}
+            }
+            
             with tab1:
-                # Recreate detailed report structure for display functions
-                detailed_report = {
-                    'parameter_analysis': search_details['parameter_analysis'],
-                    'suggestions': search_details['suggestions'],
-                    'next_steps': search_details['next_steps']
-                }
                 display_parameter_analysis(detailed_report)
             
             with tab2:
@@ -622,6 +793,69 @@ def display_history_details(search_id):
             
             with tab3:
                 display_next_steps(detailed_report)
+                
+            with tab4:
+                st.subheader("📋 Download Report Options")
+                
+                # Create overall assessment dict for PDF generation
+                assessment = {
+                    'safety_status': search_details['result'],
+                    'confidence': search_details['confidence'],
+                    'recommendation': "Please consult with water quality professionals for specific recommendations."
+                }
+                
+                # Generate reports
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # Text report
+                report_text = f"""
+Water Quality Analysis Report
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+OVERALL ASSESSMENT:
+Status: {search_details['result']}
+Confidence: {search_details['confidence']:.1%}
+
+PARAMETER VALUES:
+"""
+                for param, analysis in detailed_report['parameter_analysis'].items():
+                    report_text += f"{param}: {analysis['value']:.2f} ({analysis['status']})\n"
+                
+                report_text += f"\nISSUES FOUND: {len(search_details['suggestions'])}\n"
+                
+                for suggestion in detailed_report['suggestions']:
+                    report_text += f"\n{suggestion['parameter']}: {suggestion['issue']}\n"
+                    report_text += f"Priority: {suggestion['priority']}\n"
+                    report_text += f"Treatments: {', '.join(suggestion['treatments'])}\n"
+                
+                # Download buttons
+                try:
+                    pdf_bytes = generate_pdf_report(detailed_report, assessment)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.download_button(
+                            label="📄 Download Text Report",
+                            data=report_text,
+                            file_name=f"water_quality_report_{timestamp}.txt",
+                            mime="text/plain"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="📊 Download PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"water_quality_report_{timestamp}.pdf",
+                            mime="application/pdf"
+                        )
+                except Exception as e:
+                    st.error(f"Error generating PDF report: {str(e)}")
+                    st.download_button(
+                        label="📄 Download Text Report",
+                        data=report_text,
+                        file_name=f"water_quality_report_{timestamp}.txt",
+                        mime="text/plain"
+                    )
         
         # Button to return to main view
         if st.button("Back to Main View"):
@@ -780,8 +1014,10 @@ def main():
                             with col3:
                                 st.metric("Total Issues", detailed_report['issue_summary']['total_issues'])
                             
-                            # Download report
+                            # Download report options
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            
+                            # Generate text report
                             report_text = f"""
 Water Quality Analysis Report
 Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -803,12 +1039,39 @@ PARAMETER VALUES:
                                 report_text += f"Priority: {suggestion['priority']}\n"
                                 report_text += f"Treatments: {', '.join(suggestion['treatments'])}\n"
                             
-                            st.download_button(
-                                label="📄 Download Report",
-                                data=report_text,
-                                file_name=f"water_quality_report_{timestamp}.txt",
-                                mime="text/plain"
-                            )
+                            # Generate PDF report
+                            try:
+                                pdf_bytes = generate_pdf_report(detailed_report, assessment)
+                                
+                                # Create columns for download buttons
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # Text report download button
+                                    st.download_button(
+                                        label="📄 Download Text Report",
+                                        data=report_text,
+                                        file_name=f"water_quality_report_{timestamp}.txt",
+                                        mime="text/plain"
+                                    )
+                                
+                                with col2:
+                                    # PDF report download button
+                                    st.download_button(
+                                        label="� Download PDF Report",
+                                        data=pdf_bytes,
+                                        file_name=f"water_quality_report_{timestamp}.pdf",
+                                        mime="application/pdf"
+                                    )
+                            except Exception as e:
+                                st.error(f"Error generating PDF report: {str(e)}")
+                                # Fall back to text report if PDF generation fails
+                                st.download_button(
+                                    label="�📄 Download Text Report",
+                                    data=report_text,
+                                    file_name=f"water_quality_report_{timestamp}.txt",
+                                    mime="text/plain"
+                                )
                 
                 except Exception as e:
                     st.error(f"Error during prediction: {e}")
