@@ -259,41 +259,59 @@ def display_prediction_results(prediction_result):
         st.markdown(f"""
         <div class="safe-water">
             <h2>✅ WATER IS SAFE FOR CONSUMPTION</h2>
-            <p>Confidence: {prediction_result['confidence']:.1%}</p>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
         <div class="unsafe-water">
             <h2>⚠️ WATER IS NOT SAFE FOR CONSUMPTION</h2>
-            <p>Confidence: {prediction_result['confidence']:.1%}</p>
         </div>
         """, unsafe_allow_html=True)
     
-    # Probability gauge
+    # Always show the unsafe probability (risk) on the gauge
+    unsafe_probability = prediction_result['probabilities']['unsafe'] * 100  # This is the risk probability
+    safe_probability = prediction_result['probabilities']['safe'] * 100      # This is the safe probability
+    
+    # Always use "Risk Probability (%)" for the gauge title for consistency
+    gauge_title = "Risk Probability (%)"
+    
+    # Display the risk level (unsafe probability) on the gauge
+    # Red represents higher risk
+    gauge_steps = [
+        {'range': [0, 50], 'color': "green"},
+        {'range': [50, 80], 'color': "orange"},
+        {'range': [80, 100], 'color': "red"}
+    ]
+    
     fig = go.Figure(go.Indicator(
         mode = "gauge+number",
-        value = prediction_result['probabilities']['safe'] * 100,
+        value = unsafe_probability,  # Always show unsafe probability (risk)
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Safety Probability (%)"},
+        title = {'text': gauge_title},
         gauge = {
             'axis': {'range': [None, 100]},
             'bar': {'color': "darkblue"},
-            'steps': [
-                {'range': [0, 50], 'color': "lightgray"},
-                {'range': [50, 80], 'color': "yellow"},
-                {'range': [80, 100], 'color': "green"}
-            ],
+            'steps': gauge_steps,
             'threshold': {
-                'line': {'color': "red", 'width': 4},
+                'line': {'color': "black", 'width': 4},
                 'thickness': 0.75,
-                'value': 90
+                'value': 50
             }
         }
     ))
     
     fig.update_layout(height=300)
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Display both probabilities below the gauge
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(label="Safe Probability", value=f"{safe_probability:.1f}%", delta=None)
+    with col2:
+        st.metric(label="Risk Probability", value=f"{unsafe_probability:.1f}%", delta=None)
+    
+    # Add explanation for the gauge
+    st.caption("The gauge above shows the risk level of your water. Higher values (red) indicate greater risk.")
 
 def display_parameter_analysis(detailed_report):
     """Display detailed parameter analysis"""
@@ -481,7 +499,22 @@ def generate_pdf_report(detailed_report, assessment):
         status_style = red_style
     
     elements.append(Paragraph(f"Status: {assessment['safety_status']}", status_style))
-    elements.append(Paragraph(f"Confidence: {assessment['confidence']:.1%}", normal_style))
+    
+    # Get probabilities from the assessment
+    safe_probability = assessment.get('probabilities', {}).get('safe', 0) * 100
+    unsafe_probability = assessment.get('probabilities', {}).get('unsafe', 0) * 100
+    
+    # If probabilities are not in the assessment, use a default
+    if safe_probability == 0 and unsafe_probability == 0:
+        if assessment['safety_status'] == 'SAFE':
+            safe_probability = assessment['confidence'] * 100
+            unsafe_probability = 100 - safe_probability
+        else:
+            unsafe_probability = assessment['confidence'] * 100
+            safe_probability = 100 - unsafe_probability
+    
+    elements.append(Paragraph(f"Safe Probability: {safe_probability:.1f}%", normal_style))
+    elements.append(Paragraph(f"Risk Probability: {unsafe_probability:.1f}%", normal_style))
     elements.append(Paragraph(f"Recommendation: {assessment['recommendation']}", normal_style))
     
     elements.append(Spacer(1, 0.25*inch))
@@ -1005,13 +1038,20 @@ def main():
                             
                             # Overall assessment
                             assessment = detailed_report['overall_assessment']
-                            col1, col2, col3 = st.columns(3)
+                            
+                            # Calculate probabilities
+                            safe_prob = prediction_result['probabilities']['safe'] * 100
+                            unsafe_prob = prediction_result['probabilities']['unsafe'] * 100
+                            
+                            col1, col2, col3, col4 = st.columns(4)
                             
                             with col1:
                                 st.metric("Safety Status", assessment['safety_status'])
                             with col2:
-                                st.metric("Confidence", f"{assessment['confidence']:.1%}")
+                                st.metric("Safe Probability", f"{safe_prob:.1f}%")
                             with col3:
+                                st.metric("Risk Probability", f"{unsafe_prob:.1f}%")
+                            with col4:
                                 st.metric("Total Issues", detailed_report['issue_summary']['total_issues'])
                             
                             # Download report options
@@ -1024,7 +1064,8 @@ Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 OVERALL ASSESSMENT:
 Status: {assessment['safety_status']}
-Confidence: {assessment['confidence']:.1%}
+Safe Probability: {prediction_result['probabilities']['safe']:.1%}
+Risk Probability: {prediction_result['probabilities']['unsafe']:.1%}
 Recommendation: {assessment['recommendation']}
 
 PARAMETER VALUES:
