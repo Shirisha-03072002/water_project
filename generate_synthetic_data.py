@@ -278,7 +278,7 @@ class WaterQualityDataGenerator:
         plt.show()
     
     def save_dataset(self, df: pd.DataFrame, 
-                    filepath: str = "data/synthetic_water_quality_dataset.csv") -> None:
+                    filepath: str = "data/water_quality_dataset.csv") -> None:
         """Save the generated dataset"""
         os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
         df.to_csv(filepath, index=False)
@@ -326,5 +326,5 @@ if __name__ == "__main__":
     )
     
     print(f"\n🎉 Synthetic dataset generation complete!")
-    print(f"📁 Dataset saved as: data/synthetic_water_quality_dataset.csv")
+    print(f"📁 Dataset saved as: data/water_quality_dataset.csv")
     print(f"📊 Ready for model training!")
