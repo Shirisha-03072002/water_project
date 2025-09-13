@@ -1084,35 +1084,16 @@ PARAMETER VALUES:
                             try:
                                 pdf_bytes = generate_pdf_report(detailed_report, assessment)
                                 
-                                # Create columns for download buttons
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    # Text report download button
-                                    st.download_button(
-                                        label="📄 Download Text Report",
-                                        data=report_text,
-                                        file_name=f"water_quality_report_{timestamp}.txt",
-                                        mime="text/plain"
-                                    )
-                                
-                                with col2:
-                                    # PDF report download button
-                                    st.download_button(
-                                        label="� Download PDF Report",
-                                        data=pdf_bytes,
-                                        file_name=f"water_quality_report_{timestamp}.pdf",
-                                        mime="application/pdf"
-                                    )
+                                # PDF report download button
+                                st.download_button(
+                                    label="� Download PDF Report",
+                                    data=pdf_bytes,
+                                    file_name=f"water_quality_report_{timestamp}.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
                             except Exception as e:
                                 st.error(f"Error generating PDF report: {str(e)}")
-                                # Fall back to text report if PDF generation fails
-                                st.download_button(
-                                    label="�📄 Download Text Report",
-                                    data=report_text,
-                                    file_name=f"water_quality_report_{timestamp}.txt",
-                                    mime="text/plain"
-                                )
                 
                 except Exception as e:
                     st.error(f"Error during prediction: {e}")
