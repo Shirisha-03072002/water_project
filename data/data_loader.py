@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 from typing import Tuple, Optional
 import os
 
-def load_water_quality_data(filepath: str = "data/synthetic_water_quality_dataset.csv") -> pd.DataFrame:
+def load_water_quality_data(filepath: str = "data/water_quality_dataset.csv") -> pd.DataFrame:
     """
     Load water quality dataset from CSV file
     
@@ -114,7 +114,7 @@ def scale_features(X_train: pd.DataFrame, X_test: pd.DataFrame,
     
     return X_train_scaled, X_test_scaled, (scaler if save_scaler else None)
 
-def load_and_prepare_data(filepath: str = "data/synthetic_water_quality_dataset.csv",
+def load_and_prepare_data(filepath: str = "data/water_quality_dataset.csv",
                          test_size: float = 0.2,
                          scale_features_flag: bool = True,
                          random_state: int = 42) -> dict:

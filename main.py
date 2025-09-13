@@ -11,7 +11,7 @@ from utils.explain import WaterQualityExplainer
 import warnings
 warnings.filterwarnings('ignore')
 
-def main_training_pipeline(data_path: str = "data/synthetic_water_quality_dataset.csv",
+def main_training_pipeline(data_path: str = "data/water_quality_dataset.csv",
                           model_path: str = "models/water_quality_xgboost.pkl",
                           perform_tuning: bool = False):
     """
@@ -141,7 +141,7 @@ def predict_water_quality(water_sample: dict,
         
         # Load and prepare data to get the scaler
         data = load_and_prepare_data(
-            filepath="data/synthetic_water_quality_dataset.csv",
+            filepath="data/water_quality_dataset.csv",
             test_size=0.2,
             scale_features_flag=True,
             random_state=42

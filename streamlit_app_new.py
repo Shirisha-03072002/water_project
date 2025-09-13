@@ -1086,7 +1086,7 @@ PARAMETER VALUES:
                                 
                                 # PDF report download button
                                 st.download_button(
-                                    label="� Download PDF Report",
+                                    label="Download PDF Report",
                                     data=pdf_bytes,
                                     file_name=f"water_quality_report_{timestamp}.pdf",
                                     mime="application/pdf",

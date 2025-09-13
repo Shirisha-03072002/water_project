@@ -41,5 +41,5 @@ ENV/
 .cache/
 
 # Project specific
-synthetic_water_quality_dataset.csv
+water_quality_dataset.csv
 *.png
