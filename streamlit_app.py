@@ -397,6 +397,41 @@ def display_model_info():
         - Trihalomethanes
         - Sulfate
         """)
+    
+    # Display feature correlations with larger size
+    st.subheader("📊 Feature Correlations")
+    
+    # Create a larger figure for better visibility
+    fig = plt.figure(figsize=(15, 12))
+    
+    # Load dataset for visualization
+    try:
+        df = load_water_quality_data()
+        if df is not None:
+            # Calculate correlation matrix
+            corr_matrix = df.corr()
+            
+            # Create heatmap with larger size
+            sns.heatmap(
+                corr_matrix,
+                annot=True,  # Show correlation values
+                cmap='RdBu',  # Use Red-Blue colormap
+                center=0,     # Center the colormap at 0
+                fmt='.2f',   # Format correlation values to 2 decimal places
+                square=True,  # Make the plot square-shaped
+                linewidths=0.5, # Add lines between cells
+                cbar_kws={"shrink": .8} # Adjust colorbar size
+            )
+            
+            plt.title('Feature Correlation Matrix', pad=20, size=14)
+            plt.xticks(rotation=45, ha='right')
+            plt.yticks(rotation=0)
+            
+            # Use streamlit's pyplot function with the figure
+            st.pyplot(fig)
+    except Exception as e:
+        st.error(f"Error loading or displaying correlation matrix: {e}")
+        plt.close(fig)  # Close the figure if there's an error
 
 def main():
     """Main Streamlit application"""
@@ -585,18 +620,6 @@ PARAMETER VALUES:
                 color_discrete_map={0: 'red', 1: 'green'},
                 title=f"{param_to_plot} Distribution by Water Safety",
                 labels={'Potability': 'Water Safety', 0: 'Unsafe', 1: 'Safe'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Correlation heatmap
-            st.subheader("🔗 Feature Correlations")
-            corr_matrix = df.corr()
-            
-            fig = px.imshow(
-                corr_matrix,
-                color_continuous_scale='RdBu',
-                aspect='auto',
-                title="Feature Correlation Matrix"
             )
             st.plotly_chart(fig, use_container_width=True)
     
