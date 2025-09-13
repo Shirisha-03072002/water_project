@@ -1,12 +1,14 @@
 """
-Streamlit Web Application for Water Quality Prediction
-=====================================================
+Updated Streamlit Web Application for Water Quality Prediction
+===============================================================
 
 This app provides a user-friendly interface for:
-1. Predicting water quality safety
-2. Explaining predictions with detailed analysis
-3. Providing treatment recommendations
-4. Visualizing model performance
+1. User authentication (login/register)
+2. Predicting water quality safety
+3. Explaining predictions with detailed analysis
+4. Providing treatment recommendations
+5. Visualizing model performance
+6. Tracking search history per user
 """
 
 import streamlit as st
@@ -20,15 +22,28 @@ import seaborn as sns
 from datetime import datetime
 import os
 import sys
+import json
+import struct  # For binary data unpacking
 
 # Add the current directory to Python path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
+# Import our modules
 from data.data_loader import load_water_quality_data, prepare_features_target
 from features.feature_engineering import engineer_features
 from models.xgboost_model import WaterQualityXGBoostModel
 from utils.explain import WaterQualityExplainer
 from main import predict_water_quality
+from database.session import (
+    init_session_state, 
+    render_auth_ui, 
+    is_authenticated, 
+    get_current_user,
+    logout_user
+)
+from database.history import history
 
 # Page configuration
 st.set_page_config(
@@ -80,6 +95,43 @@ st.markdown("""
         border: none;
         border-radius: 5px;
         padding: 0.5rem 1rem;
+    }
+    
+    .auth-form {
+        background: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    
+    .history-item {
+        background: white;
+        padding: 1rem;
+        border-radius: 5px;
+        margin-bottom: 0.5rem;
+        border-left: 4px solid #1e3c72;
+        cursor: pointer;
+    }
+    
+    .history-item:hover {
+        background: #f8f9fa;
+    }
+    
+    .safe-badge {
+        background-color: #28a745;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
+    }
+    
+    .unsafe-badge {
+        background-color: #dc3545;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -433,8 +485,164 @@ def display_model_info():
         st.error(f"Error loading or displaying correlation matrix: {e}")
         plt.close(fig)  # Close the figure if there's an error
 
+def display_user_history():
+    """Display search history for logged in user"""
+    st.subheader("📜 Your Search History")
+    
+    user = get_current_user()
+    
+    if not user:
+        st.warning("Please log in to view your search history")
+        return
+    
+    try:
+        # Get user's search history
+        user_history = history.get_user_history(user['user_id'])
+        
+        if not user_history:
+            st.info("You don't have any search history yet")
+            return
+        
+        # Display search history
+        for record in user_history:
+            try:
+                # Format timestamp
+                timestamp = record['timestamp']
+                if isinstance(timestamp, bytes):
+                    timestamp = timestamp.decode('utf-8')
+                timestamp = timestamp.split('.')[0] if '.' in timestamp else timestamp
+                
+                # Create expandable card for each search
+                result_text = '✅ SAFE' if record['result'] == 'SAFE' else '⚠️ UNSAFE'
+                confidence = record['confidence']
+                if isinstance(confidence, bytes):
+                    # Try to decode and convert to float
+                    try:
+                        confidence = struct.unpack('f', confidence)[0]
+                    except:
+                        confidence = 0.5  # Default if conversion fails
+                elif not isinstance(confidence, (float, int)):
+                    try:
+                        confidence = float(confidence)
+                    except:
+                        confidence = 0.5  # Default if conversion fails
+                
+                with st.expander(f"**{timestamp}** - Result: {result_text} ({confidence:.1%})"):
+                    # Display water parameters
+                    st.write("**Water Parameters:**")
+                    params_df = pd.DataFrame([record['water_params']])
+                    st.dataframe(params_df.T.rename(columns={0: 'Value'}), use_container_width=True)
+                    
+                    # Add button to view full details
+                    if st.button(f"View Full Report", key=f"view_{record['search_id']}"):
+                        # Set session state to view this report
+                        st.session_state.viewing_report = record['search_id']
+                        st.rerun()
+                    
+                    # Add button to reuse these parameters
+                    if st.button(f"Reuse These Parameters", key=f"reuse_{record['search_id']}"):
+                        # Set session state to reuse these parameters
+                        st.session_state.reuse_parameters = record['water_params']
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error displaying record: {str(e)}")
+                st.write(f"Record data: {record}")
+                continue
+    
+    except Exception as e:
+        st.error(f"Error retrieving search history: {str(e)}")
+        st.error("Please try logging out and back in, or contact support if the issue persists.")
+
+def display_history_details(search_id):
+    """Display detailed view of a specific search from history"""
+    try:
+        # Get detailed search information
+        search_details = history.get_search_details(search_id)
+        
+        if not search_details:
+            st.error(f"Search details not found for ID: {search_id}")
+            return
+        
+        st.subheader("🔍 Search History Details")
+        
+        # Display timestamp and result
+        col1, col2 = st.columns(2)
+        with col1:
+            # Get timestamp from the appropriate field
+            timestamp = search_details.get('timestamp') or search_details.get('search_timestamp')
+            if isinstance(timestamp, bytes):
+                timestamp = timestamp.decode('utf-8')
+            timestamp = timestamp.split('.')[0] if '.' in timestamp else timestamp
+            st.info(f"**Date & Time**: {timestamp}")
+        
+        with col2:
+            confidence = search_details['confidence'] 
+            if isinstance(confidence, bytes):
+                # Try to decode and convert to float
+                try:
+                    confidence = struct.unpack('f', confidence)[0]
+                except:
+                    confidence = 0.5  # Default if conversion fails
+            elif not isinstance(confidence, (float, int)):
+                try:
+                    confidence = float(confidence)
+                except:
+                    confidence = 0.5  # Default if conversion fails
+                
+            if search_details['result'] == 'SAFE':
+                st.success(f"**Result**: SAFE (Confidence: {confidence:.1%})")
+            else:
+                st.error(f"**Result**: UNSAFE (Confidence: {confidence:.1%})")
+        
+        # Display water parameters
+        st.write("**Water Parameters:**")
+        params_df = pd.DataFrame([search_details['water_params']])
+        st.dataframe(params_df, use_container_width=True)
+        
+        # If we have detailed report, display it
+        if 'parameter_analysis' in search_details:
+            # Create tabs for different sections
+            tab1, tab2, tab3 = st.tabs([
+                "📊 Parameter Analysis", 
+                "💡 Recommendations", 
+                "🎯 Next Steps"
+            ])
+            
+            with tab1:
+                # Recreate detailed report structure for display functions
+                detailed_report = {
+                    'parameter_analysis': search_details['parameter_analysis'],
+                    'suggestions': search_details['suggestions'],
+                    'next_steps': search_details['next_steps']
+                }
+                display_parameter_analysis(detailed_report)
+            
+            with tab2:
+                display_suggestions(detailed_report)
+            
+            with tab3:
+                display_next_steps(detailed_report)
+        
+        # Button to return to main view
+        if st.button("Back to Main View"):
+            st.session_state.viewing_report = None
+            st.rerun()
+        
+    except Exception as e:
+        st.error(f"Error displaying search details: {str(e)}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
+
 def main():
     """Main Streamlit application"""
+    
+    # Initialize session state
+    init_session_state()
+    
+    # Check if we're viewing a specific report
+    if is_authenticated() and 'viewing_report' in st.session_state and st.session_state.viewing_report:
+        display_history_details(st.session_state.viewing_report)
+        return
     
     # Header
     st.markdown("""
@@ -446,21 +654,81 @@ def main():
     
     # Sidebar
     st.sidebar.title("🔧 Navigation")
-    app_mode = st.sidebar.selectbox(
-        "Choose App Mode",
-        ["🧪 Predict Water Quality", "📊 Model Performance", "📚 About"]
-    )
+    
+    # Authentication UI - prominently displayed on main page if not logged in
+    if not is_authenticated():
+        st.subheader("👋 Welcome to Water Quality Prediction System!")
+        st.write("Please login or create an account to access the water quality prediction features.")
+        st.info("Creating an account allows you to save your water quality predictions and view your history.")
+        render_auth_ui()
+        
+        # For unauthenticated users, only show About section
+        app_mode = "📚 About"
+        
+        # Add some information about the system for unauthenticated users
+        st.markdown("---")
+        st.subheader("🚰 System Overview")
+        st.write("""
+        This AI-powered system analyzes water quality parameters to determine if water is safe for consumption.
+        
+        Create an account to:
+        - Predict water quality safety with 99%+ accuracy
+        - Get detailed parameter analysis and health impact information
+        - Receive treatment recommendations for unsafe water
+        - Track your water quality history over time
+        """)
+    else:
+        # Show logged in status in sidebar
+        st.sidebar.success(f"Logged in as: {st.session_state.user['username']}")
+        if st.sidebar.button("Logout"):
+            logout_user()
+            st.rerun()
+        
+        # Full navigation menu for authenticated users
+        app_mode = st.sidebar.selectbox(
+            "Choose App Mode",
+            ["🧪 Predict Water Quality", "📊 Model Performance", "📜 Search History", "📚 About"]
+        )
+    
+    # Search history mode requires authentication
+    if app_mode == "📜 Search History" and not is_authenticated():
+        st.warning("Please log in to view your search history")
+        return
     
     if app_mode == "🧪 Predict Water Quality":
         st.header("Water Quality Prediction")
         
+        # Verify authentication before allowing prediction
+        if not is_authenticated():
+            st.warning("Please login to access the water quality prediction features.")
+            st.stop()
+            
         # Load model
         model = load_model()
         if model is None:
             return
         
-        # Input form
-        water_sample = create_parameter_input_form()
+        # Input form - check if we're reusing parameters
+        if 'reuse_parameters' in st.session_state and st.session_state.reuse_parameters:
+            water_sample = st.session_state.reuse_parameters
+            st.info("Using parameters from your search history")
+            
+            # Display the parameters
+            params_df = pd.DataFrame([water_sample])
+            st.dataframe(params_df, use_container_width=True)
+            
+            # Add button to reset parameters
+            if st.button("Reset Parameters"):
+                st.session_state.reuse_parameters = None
+                st.experimental_rerun()
+        else:
+            water_sample = create_parameter_input_form()
+        
+        # Get current user ID if authenticated
+        user_id = None
+        if is_authenticated():
+            user = get_current_user()
+            user_id = user['user_id']
         
         # Prediction button
         if st.button("🔍 Analyze Water Quality", type="primary"):
@@ -469,13 +737,10 @@ def main():
                     # Make prediction
                     prediction_result = predict_water_quality(
                         water_sample, 
-                        detailed_explanation=True
+                        detailed_explanation=True,
+                        user_id=user_id,
+                        save_to_history=is_authenticated()
                     )
-                    
-                    # Debug information (can be removed later)
-                    st.write("**Debug Information:**")
-                    st.write(f"Raw prediction: {prediction_result['prediction']}")
-                    st.write(f"Probabilities: Safe={prediction_result['probabilities']['safe']:.3f}, Unsafe={prediction_result['probabilities']['unsafe']:.3f}")
                     
                     # Display results
                     display_prediction_results(prediction_result)
@@ -549,7 +814,7 @@ PARAMETER VALUES:
                     st.error(f"Error during prediction: {e}")
         
         # Debug test button for troubleshooting
-        if st.button("🔬 Quick Debug Test"):
+        with st.expander("🔬 Quick Debug Test"):
             st.write("Testing both sample types:")
             
             safe_sample = {
@@ -564,27 +829,43 @@ PARAMETER VALUES:
                 'Organic_carbon': 15.0, 'Trihalomethanes': 150.0, 'Turbidity': 5.0
             }
             
-            try:
-                safe_result = predict_water_quality(safe_sample, detailed_explanation=False)
-                unsafe_result = predict_water_quality(unsafe_sample, detailed_explanation=False)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Safe Sample Result:**")
-                    st.write(f"Prediction: {safe_result['safety_status']}")
-                    st.write(f"Confidence: {safe_result['confidence']:.2%}")
-                
-                with col2:
-                    st.write("**Unsafe Sample Result:**")
-                    st.write(f"Prediction: {unsafe_result['safety_status']}")
-                    st.write(f"Confidence: {unsafe_result['confidence']:.2%}")
-                    
-            except Exception as e:
-                st.error(f"Debug test failed: {e}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Test Safe Sample"):
+                    try:
+                        result = predict_water_quality(
+                            safe_sample, 
+                            detailed_explanation=False,
+                            user_id=user_id if is_authenticated() else None,
+                            save_to_history=False
+                        )
+                        st.write(f"Prediction: {result['safety_status']}")
+                        st.write(f"Confidence: {result['confidence']:.2%}")
+                    except Exception as e:
+                        st.error(f"Test failed: {e}")
+            
+            with col2:
+                if st.button("Test Unsafe Sample"):
+                    try:
+                        result = predict_water_quality(
+                            unsafe_sample, 
+                            detailed_explanation=False,
+                            user_id=user_id if is_authenticated() else None,
+                            save_to_history=False
+                        )
+                        st.write(f"Prediction: {result['safety_status']}")
+                        st.write(f"Confidence: {result['confidence']:.2%}")
+                    except Exception as e:
+                        st.error(f"Test failed: {e}")
     
     elif app_mode == "📊 Model Performance":
         st.header("Model Performance Dashboard")
         
+        # Verify authentication before allowing access to model performance
+        if not is_authenticated():
+            st.warning("Please login to access the model performance dashboard.")
+            st.stop()
+            
         display_model_info()
         
         # Load dataset for visualization
@@ -623,8 +904,20 @@ PARAMETER VALUES:
             )
             st.plotly_chart(fig, use_container_width=True)
     
+    elif app_mode == "📜 Search History":
+        st.header("Your Search History")
+        
+        if is_authenticated():
+            display_user_history()
+        else:
+            st.warning("Please log in to view your search history")
+    
     elif app_mode == "📚 About":
         st.header("About Water Quality Prediction System")
+        
+        # Show a call-to-action for non-authenticated users
+        if not is_authenticated():
+            st.info("👋 **Create an account or login above to access the full functionality of the system!**")
         
         st.markdown("""
         ## 🎯 Purpose
@@ -637,6 +930,11 @@ PARAMETER VALUES:
         3. **Safety Prediction**: Get immediate safe/unsafe classification
         4. **Detailed Explanation**: Understand which parameters are problematic
         5. **Treatment Recommendations**: Receive specific suggestions for improvement
+        
+        ## 👤 User Accounts
+        - **Create an account** to save your search history
+        - **View past searches** to track water quality over time
+        - **Reuse parameters** from previous searches
         
         ## 📊 Water Quality Parameters
         
@@ -658,6 +956,8 @@ PARAMETER VALUES:
         - **Data Processing**: Pandas, NumPy
         - **Visualization**: Plotly, Matplotlib
         - **Explainability**: SHAP values, Feature importance
+        - **Database**: SQLite
+        - **Authentication**: JWT, Bcrypt
         
         ## ⚠️ Disclaimer
         This tool is for educational and preliminary analysis purposes. 
@@ -666,6 +966,18 @@ PARAMETER VALUES:
         ## 👨‍💻 Developer
         Built with ❤️ using modern ML and web technologies.
         """)
+        
+        # Repeat the call-to-action at the bottom for non-authenticated users
+        if not is_authenticated():
+            st.success("👆 **Sign up above to start using the Water Quality Prediction System!**")
 
 if __name__ == "__main__":
+    # Initialize session state with reuse parameters
+    if 'reuse_parameters' not in st.session_state:
+        st.session_state.reuse_parameters = None
+    
+    # Initialize viewing report state
+    if 'viewing_report' not in st.session_state:
+        st.session_state.viewing_report = None
+    
     main()

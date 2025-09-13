@@ -112,7 +112,9 @@ def main_training_pipeline(data_path: str = "data/synthetic_water_quality_datase
 
 def predict_water_quality(water_sample: dict, 
                          model_path: str = "models/water_quality_xgboost.pkl",
-                         detailed_explanation: bool = True) -> dict:
+                         detailed_explanation: bool = True,
+                         user_id: int = None,
+                         save_to_history: bool = False) -> dict:
     """
     Predict water quality for a single sample and provide explanations
     
@@ -120,6 +122,8 @@ def predict_water_quality(water_sample: dict,
         water_sample: Dictionary with water quality parameters
         model_path: Path to the trained model
         detailed_explanation: Whether to provide detailed explanations
+        user_id: User ID for saving to history (optional)
+        save_to_history: Whether to save prediction to history
         
     Returns:
         Dictionary with prediction results and explanations
@@ -232,6 +236,16 @@ def predict_water_quality(water_sample: dict,
             print("\n💡 Immediate actions needed:")
             for step in report['next_steps'][:3]:
                 print(f"   • {step}")
+    
+    # Save to history if requested
+    if save_to_history:
+        try:
+            from database.history import history
+            search_id = history.save_search(user_id, water_sample, results)
+            results['search_id'] = search_id
+            print(f"✅ Search saved to history (ID: {search_id})")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not save to history: {e}")
     
     return results
 
