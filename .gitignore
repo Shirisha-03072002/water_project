@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment
+test/
+venv/
+env/
+.env/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local development settings
+.env
+.env.local
+
+# Model files
+*.pkl
+*.h5
+
+# Logs
+*.log
+
+# Cache
+.cache/
+
+# Project specific
+synthetic_water_quality_dataset.csv
+*.png
